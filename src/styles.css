@@ -1,1 +1,20 @@
-/* You can add global styles to this file, and also import other style files */
+/* You can add gl/* Ajuste del logo para verse mejor en alto y ancho del navbar */
+.brand-logo {
+  height: 48px;         /* alto consistente en desktop */
+  width: auto;          /* mantiene proporción */
+  object-fit: contain;  /* se adapta sin deformarse */
+  display: block;
+}
+
+@media (min-width: 992px) {
+  .brand-logo {
+    height: 56px;       /* un poco más alto en pantallas grandes */
+  }
+}
+
+/* Asegura que el buscador no deforme la barra en móviles */
+@media (max-width: 991.98px) {
+  .navbar .form-control {
+    min-width: 0;
+  }
+}
