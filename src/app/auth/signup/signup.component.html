@@ -1,0 +1,81 @@
+<div class="container d-flex justify-content-center align-items-start min-vh-100 pt-5">
+    <div class="card shadow-lg p-4 mt-5" style="width: 100%; max-width: 400px;">
+      <div class="card-body">
+        <h3 class="card-title text-center mb-4">📝 Crear Usuario</h3>
+  
+        <form (ngSubmit)="signup()" #signupForm="ngForm">
+          <div class="mb-3">
+            <label for="username" class="form-label">Nombre</label>
+            <input
+              type="text"
+              id="nombre"
+              [(ngModel)]="nombre"
+              name="nombre"
+              class="form-control"
+              placeholder="Enter nombre"
+              required />
+          </div>
+  
+          <div class="mb-3">
+            <label for="celular" class="form-label">celular</label>
+            <input
+              type="celular"
+              id="celular"
+              [(ngModel)]="celular"
+              name="celular"
+              class="form-control"
+              placeholder="Enter celular"
+              required />
+          </div>
+  
+          <div class="mb-3">
+            <label for="correo" class="form-label">correo</label>
+            <input
+              type="correo"
+              id="correo"
+              [(ngModel)]="correo"
+              name="correo"
+              class="form-control"
+              placeholder="Enter correo"
+              required />
+          </div>
+          
+  
+          <div class="mb-3">
+            <label for="direccion" class="form-label">direccion</label>
+            <input
+              type="direccion"
+              id="direccion"
+              [(ngModel)]="direccion"
+              name="direccion"
+              class="form-control"
+              placeholder="Re-enter direccion"
+              required />
+          </div>
+  
+          <div class="mb-3">
+            <label for="password" class="form-label">password</label>
+            <input
+              type="password"
+              id="password"
+              [(ngModel)]="password"
+              name="password"
+              class="form-control"
+              placeholder="Enter password"
+              required />
+          </div>
+          <div class="d-grid">
+            <button type="submit" class="btn btn-success">
+              <i class="bi bi-person-plus me-2"></i> Crear Usuario
+            </button>
+          </div>
+        </form>
+  
+        <div class="mt-3 text-center">
+          <span>¿Ya tienes una cuenta?</span>
+          <a routerLink="/login" class="btn btn-link p-0 ms-1">Iniciar Sesión</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  
