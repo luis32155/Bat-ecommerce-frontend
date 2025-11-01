@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpHeaders, HttpResponse } from '@angular/common/http';
+import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable, Subject, of, throwError } from 'rxjs';
 import { catchError, map, tap } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
@@ -12,10 +12,10 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
-  token?: string;
-  jwtToken?: string;
-  accessToken?: string;
-  jwt?: string;
+  token?: string;           // variante común
+  jwtToken?: string;        // otra variante
+  accessToken?: string;     // otra variante
+  jwt?: string;             // otra variante
   id?: number;
   userId?: number;
   usuarioId?: number;
@@ -40,8 +40,9 @@ export interface SignupRequest {
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private authBase = environment.AUTH_BASE; // ej: http://localhost:8080/auth-service
+  private authBase = environment.AUTH_BASE; // ej: http://localhost:8080/auth-service or .../auth-service/auth
 
+  // Notificador para que el header/otros se enteren de login/logout
   private _authChanged = new Subject<void>();
   authChanged$ = this._authChanged.asObservable();
 
@@ -49,6 +50,8 @@ export class AuthService {
 
   // ------------------ LOGIN ------------------
   login(data: LoginRequest): Observable<LoginResponse> {
+    // 1er intento: {AUTH_BASE}/login
+    // fallback:   {AUTH_BASE}/auth/login
     const url1 = this.join(this.authBase, 'login');
     const url2 = this.join(this.authBase, 'auth/login');
 
@@ -85,10 +88,10 @@ export class AuthService {
   getCurrentUser(): Observable<any> {
     const url1 = this.join(this.authBase, 'profile');
     const url2 = this.join(this.authBase, 'auth/profile');
-    return this.http.get(url1, { headers: this.getAuthHeaders() }).pipe(
+    return this.http.get(url1).pipe(
       catchError((err1) => {
         if (err1?.status === 404 || err1?.status === 405) {
-          return this.http.get(url2, { headers: this.getAuthHeaders() });
+          return this.http.get(url2);
         }
         return throwError(() => err1);
       })
@@ -100,21 +103,25 @@ export class AuthService {
     const url1 = this.join(this.authBase, 'logout');
     const url2 = this.join(this.authBase, 'auth/logout');
 
+    // siempre limpia local, no bloquees por error del server
+    // dentro de AuthService.logout()
     const clear = () => {
-      localStorage.removeItem('token');
-      localStorage.removeItem('access_token'); // <-- también limpiamos este
-      localStorage.removeItem('userId');
-      localStorage.removeItem('correo');
-      localStorage.removeItem('username');
-      localStorage.removeItem('roles');
-      this._authChanged.next();
+      [
+        'token','jwtToken','accessToken','jwt', // todas las variantes de token
+        'roles','username','correo','userId',
+        'cartLocal' // carrito local si lo usas
+      ].forEach(k => localStorage.removeItem(k));
+      sessionStorage.clear();
+      this._authChanged.next(); // avisa a la app
     };
 
-    return this.http.post(url1, {}, { headers: this.getAuthHeaders() }).pipe(
+
+    return this.http.post(url1, {}).pipe(
       map(() => void 0),
       tap(clear),
       catchError(() => {
-        return this.http.post(url2, {}, { headers: this.getAuthHeaders() }).pipe(
+        // reintenta en ruta alternativa; si también falla, igual limpia
+        return this.http.post(url2, {}).pipe(
           map(() => void 0),
           tap(clear),
           catchError(() => {
@@ -133,29 +140,15 @@ export class AuthService {
     return !this.isTokenExpired(t);
   }
 
-  /** Devuelve el token (prioriza access_token para compatibilidad con otros servicios) */
   getToken(): string | null {
-    return localStorage.getItem('access_token') || localStorage.getItem('token');
-  }
-
-  /** Headers con Bearer (reusarlo en tus servicios) */
-  getAuthHeaders(): HttpHeaders {
-    const token = this.getToken() || '';
-    return new HttpHeaders({
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    });
+    // guardes “token” o “Bearer x”, el interceptor ya normaliza
+    return localStorage.getItem('token');
   }
 
   getUserId(): number | null {
     const v = localStorage.getItem('userId');
-    if (v) return Number(v);
-    // fallback: intenta leer id del JWT si no existe en localStorage
-    const t = this.getToken();
-    const payload = t ? this.getJwtPayload(t) : null;
-    const id = payload?.id ?? payload?.userId ?? payload?.usuarioId;
-    return id != null ? Number(id) : null;
-  }
+    return v ? Number(v) : null;
+    }
 
   getUsername(): string {
     return localStorage.getItem('username') || localStorage.getItem('correo') || '';
@@ -169,6 +162,7 @@ export class AuthService {
       if (Array.isArray(parsed)) return parsed as string[];
       if (typeof parsed === 'string') return [parsed];
     } catch {
+      // si era un string plano
       return [raw];
     }
     return [];
@@ -178,6 +172,7 @@ export class AuthService {
   private persistFromResponse(res: HttpResponse<LoginResponse>) {
     const body = res?.body || {};
 
+    // token: body o header Authorization
     const headerAuth = res.headers?.get('Authorization') || '';
     const tokenFromHeader = headerAuth?.toLowerCase().startsWith('bearer ')
       ? headerAuth.slice(7)
@@ -191,25 +186,14 @@ export class AuthService {
       tokenFromHeader ||
       '';
 
-    // 🔑 Guardar en ambos para compatibilidad con el resto de servicios
-    if (token) {
-      localStorage.setItem('token', token);
-      localStorage.setItem('access_token', token);
-    }
+    if (token) localStorage.setItem('token', token);
 
-    // id por body o por JWT (fallback)
-    let id =
+    const id =
       body.id ??
       body.userId ??
       body.usuarioId ??
       body.user?.id ??
       null;
-
-    if (id == null && token) {
-      const payload = this.getJwtPayload(token);
-      const claimId = payload?.id ?? payload?.userId ?? payload?.usuarioId;
-      if (claimId != null) id = Number(claimId);
-    }
 
     const username =
       body.username ??
@@ -238,6 +222,7 @@ export class AuthService {
       if (Array.isArray(rolesRaw)) {
         rolesToStore = rolesRaw as string[];
       } else if (typeof rolesRaw === 'string') {
+        // si vino como '["ROLE_USER"]' parsea, si no, envuélvelo
         rolesToStore = rolesRaw.trim().startsWith('[')
           ? (JSON.parse(rolesRaw) as string[])
           : [rolesRaw];
@@ -247,12 +232,15 @@ export class AuthService {
     }
     localStorage.setItem('roles', JSON.stringify(rolesToStore));
 
+    // notifica a la app que cambió el estado de auth
     this._authChanged.next();
   }
 
   private isTokenExpired(token: string): boolean {
     try {
-      const payload = this.getJwtPayload(token);
+      const parts = token.split('.');
+      if (parts.length !== 3) return false; // si no es JWT, no invalides
+      const payload = JSON.parse(this.safeAtob(parts[1]));
       const exp = payload?.exp;
       if (!exp) return false;
       const now = Math.floor(Date.now() / 1000);
@@ -262,18 +250,8 @@ export class AuthService {
     }
   }
 
-  private getJwtPayload(token: string): any | null {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) return null;
-      const payload = JSON.parse(this.safeAtob(parts[1]));
-      return payload;
-    } catch {
-      return null;
-    }
-  }
-
   private safeAtob(b64: string): string {
+    // corrige padding base64url
     b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
     while (b64.length % 4 !== 0) b64 += '=';
     return atob(b64);

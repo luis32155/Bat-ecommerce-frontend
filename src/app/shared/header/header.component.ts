@@ -110,10 +110,28 @@ export class HeaderComponent implements OnInit {
     });
   }
 
-  logout() {
-    this.auth.logout();
-    this.router.navigate(['/login']);
+  logout(e?: Event) {
+    e?.preventDefault();
+
+    this.auth.logout().subscribe({
+      next: () => {
+        // limpia UI
+        this.cartCount.set(0);
+        this.orderCountValue = 0;
+        this.username.set('');
+        // redirección firme
+        this.router.navigateByUrl('/login', { replaceUrl: true });
+      },
+      error: () => {
+        // igual limpiamos y redirigimos (el service ya limpió localStorage)
+        this.cartCount.set(0);
+        this.orderCountValue = 0;
+        this.username.set('');
+        this.router.navigateByUrl('/login', { replaceUrl: true });
+      }
+    });
   }
+
 
   login() {
     this.router.navigate(['/login']);

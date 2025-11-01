@@ -1,7 +1,27 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { OrderService } from '../../services/order.service';
 import { HttpClientModule } from '@angular/common/http';
+import { OrderService } from '../../services/order.service';
+
+type Estado = 'PENDIENTE' | 'PAGADO' | 'ENVIADO' | 'ENTREGADO' | 'CANCELADO' | string;
+
+interface Detalle {
+  idProducto: number;
+  nombreProducto: string;
+  cantidad: number;
+  precioUnitario: number;
+  subtotal: number;
+  productImage?: string; // opcional si luego lo tienes
+}
+
+interface Pedido {
+  idPedido: number;
+  idUsuario: number;
+  total: number;
+  fecha: string;      // o Date
+  estado: Estado;
+  detalles: Detalle[];
+}
 
 @Component({
   selector: 'app-my-orders',
@@ -11,7 +31,7 @@ import { HttpClientModule } from '@angular/common/http';
   styleUrls: ['./my-orders.component.css']
 })
 export class MyOrdersComponent implements OnInit {
-  orders: any[] = [];
+  orders: Pedido[] = [];
   loading = true;
   error = '';
 
@@ -23,9 +43,9 @@ export class MyOrdersComponent implements OnInit {
 
   getMyOrders() {
     this.orderService.getMyOrders().subscribe({
-      next: (res: any[]) => {
+      next: (res: Pedido[]) => {
         console.log('Orders fetched:', JSON.stringify(res));
-        this.orders = res;
+        this.orders = res ?? [];
         this.loading = false;
       },
       error: (err) => {
@@ -35,5 +55,14 @@ export class MyOrdersComponent implements OnInit {
       }
     });
   }
- 
+
+  badgeClass(estado: string) {
+    switch (estado) {
+      case 'PAGADO': return 'bg-success';
+      case 'ENVIADO': return 'bg-info';
+      case 'ENTREGADO': return 'bg-primary';
+      case 'CANCELADO': return 'bg-danger';
+      default: return 'bg-secondary';
+    }
+  }
 }

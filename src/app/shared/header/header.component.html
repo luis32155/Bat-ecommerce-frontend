@@ -35,7 +35,9 @@
         <ul class="dropdown-menu dropdown-menu-end">
           <li><a class="dropdown-item" routerLink="/profile">Perfil</a></li>
           <li><hr class="dropdown-divider"></li>
-          <li *ngIf="username(); else loginTpl"><a class="dropdown-item" (click)="logout()">Salir</a></li>
+          <button type="button" class="dropdown-item" (click)="logout($event)">
+            Salir
+          </button>
         </ul>
         <ng-template #loginTpl><a class="dropdown-item" (click)="login()">Ingresar</a></ng-template>
       </li>
