@@ -1,4 +1,5 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+// cart.service.ts
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, Subject, of } from 'rxjs';
 import { catchError, finalize, tap } from 'rxjs/operators';
@@ -21,7 +22,19 @@ export class CartService {
   onCartChange(): Observable<void> { return this.cartUpdated.asObservable(); }
   notifyCartChange() { this.cartUpdated.next(); }
 
-  // ---- snapshot local ----
+  // ---- helpers auth/headers ----
+  private authHeaders(extra?: Record<string, string>): HttpHeaders {
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
+    const userId = localStorage.getItem('userId') || '';
+    return new HttpHeaders({
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(userId ? { 'X-User-Id': String(userId) } : {}),
+      ...(extra ?? {})
+    });
+  }
+
+  // ---- snapshot local (fallback UI, opcional) ----
   private readLocal(): CartItem[] {
     try { return JSON.parse(localStorage.getItem(this.LOCAL_KEY) || '[]'); }
     catch { return []; }
@@ -37,13 +50,23 @@ export class CartService {
   }
   clearLocal() { localStorage.removeItem(this.LOCAL_KEY); }
 
-  // ---- acciones ----
-  addToCart(productId: number, quantity: number = 1, userId?: number) {
-    const idUsuario = userId ?? Number(localStorage.getItem('userId') ?? 9999);
-    const body = { idUsuario, idProducto: productId, cantidad: quantity };
+  // ===================== ACCIONES =====================
 
-    return this.http.post(`${this.baseUrl}/carrito/agregar`, body).pipe(
+  /** Sumar/restar usando DELTA (tu backend lo acepta en /carrito/agregar). */
+  addToCart(productId: number, quantity: number = 1) {
+    const body = {
+      idUsuario: Number(localStorage.getItem('userId')), // redundante pero válido
+      idProducto: productId,
+      cantidad: quantity
+    };
+
+    return this.http.post(
+      `${this.baseUrl}/carrito/agregar`,
+      body,
+      { headers: this.authHeaders() }
+    ).pipe(
       tap(() => {
+        // snapshot local solo si OK
         const items = this.readLocal();
         const idx = items.findIndex(i => i.productId === productId);
         if (idx >= 0) items[idx].cantidad += quantity;
@@ -54,83 +77,70 @@ export class CartService {
     );
   }
 
-  getCart(userId?: number): Observable<any> {
-    const idUsuario = userId ?? Number(localStorage.getItem('userId') ?? 9999);
-
-    // 1) /carrito/{idUsuario}
-    const try1$ = this.http.get(`${this.baseUrl}/carrito/${idUsuario}`);
-
-    return try1$.pipe(
-      catchError(err1 => {
-        if (err1?.status === 404 || err1?.status === 405) {
-          // 2) /carrito/usuario/{idUsuario}
-          const try2$ = this.http.get(`${this.baseUrl}/carrito/usuario/${idUsuario}`);
-          return try2$.pipe(
-            catchError(err2 => {
-              if (err2?.status === 404 || err2?.status === 405) {
-                // 3) /carrito?userId=...
-                const params = new HttpParams().set('userId', String(idUsuario));
-                const try3$ = this.http.get(`${this.baseUrl}/carrito`, { params });
-                return try3$.pipe(catchError(() => of([])));
-              }
-              throw err2;
-            })
-          );
-        }
-        throw err1;
-      })
-    );
+  /** Fijar cantidad ABSOLUTA usando PUT /carrito/actualizar */
+  setQuantity(productId: number, newQty: number) {
+    const qty = Math.max(1, Number(newQty) || 1);
+    const body = {
+      idUsuario: Number(localStorage.getItem('userId')),
+      idProducto: productId,
+      cantidad: qty
+    };
+    return this.http.put(
+      `${this.baseUrl}/carrito/actualizar`,
+      body,
+      { headers: this.authHeaders() }
+    ).pipe(finalize(() => this.notifyCartChange()));
   }
 
-  updateQuantity(productId: number, action: 'add' | 'delete', userId?: number) {
-    const idUsuario = userId ?? Number(localStorage.getItem('userId') ?? 9999);
-    const body = { idUsuario, idProducto: productId, action };
-
-    return this.http.put(`${this.baseUrl}/carrito/actualizar`, body).pipe(
-      tap(() => {
-        const items = this.readLocal();
-        const idx = items.findIndex(i => i.productId === productId);
-        if (action === 'add') {
-          if (idx >= 0) items[idx].cantidad += 1; else items.push({ productId, cantidad: 1 });
-        } else {
-          if (idx >= 0) {
-            items[idx].cantidad -= 1;
-            if (items[idx].cantidad <= 0) items.splice(idx, 1);
-          }
-        }
-        this.writeLocal(items);
-      }),
-      finalize(() => this.notifyCartChange())
-    );
+  /** Atajo tipo “+ / −” calculando delta y reutilizando /agregar */
+  updateQuantity(productId: number, action: 'add' | 'delete') {
+    const delta = action === 'add' ? 1 : -1;
+    return this.addToCart(productId, delta);
   }
 
-  removeItem(productId: number, userId?: number) {
-    const idUsuario = userId ?? Number(localStorage.getItem('userId') ?? 9999);
-
-    const try1$ = this.http.delete(`${this.baseUrl}/carrito/${idUsuario}/producto/${productId}`);
-
-    return try1$.pipe(
-      catchError(err1 => {
-        if (err1?.status === 404 || err1?.status === 405) {
-          const try2$ = this.http.delete(`${this.baseUrl}/carrito/producto/${productId}`, {
-            params: new HttpParams().set('userId', String(idUsuario)),
-          });
-          return try2$.pipe(
-            catchError(err2 => {
-              if (err2?.status === 404 || err2?.status === 405) {
-                return this.http.post(`${this.baseUrl}/carrito/eliminar`, { idUsuario, idProducto: productId });
-              }
-              throw err2;
-            })
-          );
-        }
-        throw err1;
-      }),
+  /** Eliminar ítem usando DELETE /carrito/producto/{productId} */
+  removeItem(productId: number) {
+    return this.http.delete(
+      `${this.baseUrl}/carrito/producto/${productId}`,
+      { headers: this.authHeaders() }
+    ).pipe(
       tap(() => {
         const items = this.readLocal().filter(i => i.productId !== productId);
         this.writeLocal(items);
       }),
       finalize(() => this.notifyCartChange())
+    );
+  }
+
+  /** Vaciar carrito */
+  clearCart() {
+    return this.http.delete(
+      `${this.baseUrl}/carrito/limpiar`,
+      { headers: this.authHeaders() }
+    ).pipe(
+      tap(() => this.clearLocal()),
+      finalize(() => this.notifyCartChange())
+    );
+  }
+
+  /** Obtener carrito (preferencia: por header X-User-Id) */
+  getCart(): Observable<any> {
+    // 1) GET /carrito/usuario (usa X-User-Id)
+    return this.http.get(
+      `${this.baseUrl}/carrito/usuario`,
+      { headers: this.authHeaders() }
+    ).pipe(
+      catchError(err1 => {
+        // 2) Fallback: /carrito/usuario/{id} por si configuraste el otro mapping
+        const userId = localStorage.getItem('userId');
+        if ((err1?.status === 404 || err1?.status === 405) && userId) {
+          return this.http.get(
+            `${this.baseUrl}/carrito/usuario/${userId}`,
+            { headers: this.authHeaders() }
+          );
+        }
+        return of([]); // no tires la app si falla
+      })
     );
   }
 }

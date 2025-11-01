@@ -149,20 +149,17 @@ export class ProductListComponent implements OnInit {
   addToCart(productId: number) {
     this.cartService.addToCart(productId, 1).subscribe({
       next: () => {
-        this.cartService.getCart().subscribe({
-          next: () => {
-            alert('Product added to cart!');
-            this.cartService.notifyCartChange();
-          },
-          error: () => alert('Failed to fetch cart.')
-        });
+        alert('Producto agregado al carrito ✅');
+        // No llamamos getCart() porque no existe ese endpoint; solo notificamos
+        this.cartService.notifyCartChange();
       },
       error: (err) => {
-        const backendMessage = err?.error?.message || 'Something went wrong.';
-        alert('Failed to add to cart: ' + backendMessage);
+        const backendMessage = err?.error?.message || 'No se pudo agregar al carrito.';
+        alert(backendMessage);
       }
     });
   }
+
 
   addToWishlist(productId: number) {
     const userId = Number(localStorage.getItem('userId'));
@@ -179,19 +176,15 @@ export class ProductListComponent implements OnInit {
   buyNow(productId: number) {
     this.cartService.addToCart(productId, 1).subscribe({
       next: () => {
-        this.cartService.getCart().subscribe({
-          next: () => {
-            alert('Product added to cart! Redirecting to checkout...');
-            this.cartService.notifyCartChange();
-            // si prefieres Router, reemplaza por this.router.navigate(['/cart']);
-            window.location.href = '/cart';
-          },
-          error: () => alert('Failed to fetch cart.')
-        });
+        // Igual: no llamamos getCart(); notificamos y redirigimos
+        this.cartService.notifyCartChange();
+        alert('Producto agregado al carrito! Redirigiendo al checkout...');
+        // Usa Router si lo prefieres
+        window.location.href = '/cart';
       },
       error: (err) => {
-        const backendMessage = err?.error?.message || 'Something went wrong.';
-        alert('Failed to add to cart: ' + backendMessage);
+        const backendMessage = err?.error?.message || 'No se pudo agregar al carrito.';
+        alert(backendMessage);
       }
     });
   }
