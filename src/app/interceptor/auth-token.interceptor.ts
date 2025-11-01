@@ -1,55 +1,51 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, throwError } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { throwError } from 'rxjs';
 
-// export const authTokenInterceptor: HttpInterceptorFn = (req, next) => {
-//   const token = localStorage.getItem('token'); 
-//     if (token) {
-//       req = req.clone({
-//         setHeaders: {
-//           Authorization: `Bearer ${token}`
-//         }
-//       });
-//     }
-//   return next(req);
-// };
+const AUTH_BYPASS = [/\/auth\/login/i, /\/auth\/register/i, /\/auth\/refresh/i];
 
 export const authTokenInterceptor: HttpInterceptorFn = (req, next) => {
+  const router = inject(Router);
 
-  const router = inject(Router); // ✅ inject instead of constructor
-  
-  const token = localStorage.getItem('token'); 
-    if (token) {
-      req = req.clone({
-        setHeaders: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-    }
-  return next(req).pipe(
+  // 1) No tocar preflight, endpoints de auth, solicitudes que ya traen Authorization
+  //    o cuando se pida explícitamente saltar auth (X-Skip-Auth: true)
+  if (
+    req.method === 'OPTIONS' ||
+    req.headers.has('Authorization') ||
+    AUTH_BYPASS.some(rx => rx.test(req.url)) ||
+    req.headers.get('X-Skip-Auth') === 'true'
+  ) {
+    return next(req);
+  }
+
+  // 2) Agregar Bearer si hay token (normalizando si ya guardaste "Bearer <token>")
+  const raw = localStorage.getItem('token') || '';
+  const token = raw.startsWith('Bearer ') ? raw.slice(7) : raw;
+  const authReq = token ? req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }) : req;
+
+  return next(authReq).pipe(
     catchError((err: HttpErrorResponse) => {
-      if (err.status === 401) {
-        // Token expired or invalid
-        console.warn('🔐 Unauthorized - logging out user...');
+      // status 0 => red/CORS: no limpies sesión
+      if (err.status === 0) {
+        return throwError(() => err);
+      }
 
-        // Clear user data
+      // 401/403: limpiar sesión y mandar a login (evita bucles)
+      const isAuthUrl = AUTH_BYPASS.some(rx => rx.test(authReq.url));
+      const alreadyOnLogin = router.url.startsWith('/login');
+
+      if ((err.status === 401 || err.status === 403) && !isAuthUrl && !alreadyOnLogin) {
         localStorage.removeItem('token');
+        localStorage.removeItem('userId');
         localStorage.removeItem('username');
+        localStorage.removeItem('correo');
         localStorage.removeItem('roles');
-        localStorage.removeItem('pageSize');
-
-        // Optionally show toast or alert
-        // alert('Session expired. Please login again.');
-
-        // Redirect to login
         router.navigate(['/login']);
-
-        // Reload to reset signals if needed
-        // window.location.reload();
       }
 
       return throwError(() => err);
     })
-  )
+  );
 };

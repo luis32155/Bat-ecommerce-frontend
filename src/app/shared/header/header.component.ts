@@ -1,9 +1,12 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router, RouterLink } from '@angular/router';
-import { CartService } from '../../services/cart.service';
+import { Router, RouterLink, NavigationEnd } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { filter, distinctUntilChanged } from 'rxjs/operators';
+
+import { CartService } from '../../services/cart.service';
 import { OrderService } from '../../services/order.service';
+import { AuthService } from '../../services/auth.service';
 
 @Component({
   selector: 'app-header',
@@ -12,97 +15,120 @@ import { OrderService } from '../../services/order.service';
   templateUrl: './header.component.html',
   styleUrls: ['./header.component.css']
 })
-export class HeaderComponent {
+export class HeaderComponent implements OnInit {
   private router = inject(Router);
   private cartService = inject(CartService);
   private orderService = inject(OrderService);
+  private auth = inject(AuthService);
 
   cartCount = signal(0);
-  orderCountValue: number = 0;
-  // username = signal(localStorage.getItem('username') || '');
-  username = computed(() => localStorage.getItem('username') || '');
-
-  searchQuery = ''; // track input
+  orderCountValue = 0;
+  username = signal<string>(localStorage.getItem('username') || localStorage.getItem('correo') || '');
+  searchQuery = '';
 
   ngOnInit(): void {
-    this.orderCount();
-    this.loadCartCount();
+    // inicializa con snapshot local para que el badge aparezca al toque
+    this.cartCount.set(this.cartService.getLocalCount());
 
-    // 🧠 Update whenever cart changes
-    this.cartService.onCartChange().subscribe(() => {
-      this.loadCartCount();
-    });
-  }
+    // refrescos
+    this.refreshAll();
 
-  // onSearch(e: Event) {
-  //   e.preventDefault(); // prevent page reload
-  //   if (this.searchQuery.trim()) {
-  //     this.router.navigate(['/products'], { queryParams: { search: this.searchQuery.trim() } });
-  //   }
-  // }
-  onSearch(e: Event) {
-    e.preventDefault();
+    // cambios de auth => refrescar
+    this.auth.authChanged$.subscribe(() => this.refreshAll());
 
-    const trimmed = this.searchQuery.trim();
+    // cambios de carrito (añadir/quitar/actualizar) => refrescar
+    this.cartService.onCartChange()
+      .pipe(distinctUntilChanged())
+      .subscribe(() => this.loadCartCount());
 
-    if (trimmed) {
-      this.router.navigate(['/products'], {
-        queryParams: { search: trimmed }
-      });
-    } else {
-      // 👇 Navigate without query param to trigger all products
-      this.router.navigate(['/products']);
-    }
-  }
+    // cambio de ruta => refrescar (por si vienes de login/checkout)
+    this.router.events.pipe(filter(e => e instanceof NavigationEnd))
+      .subscribe(() => this.refreshAll());
 
-  loadCartCount() {
-    if (this.username()) {
-      this.cartService.getCart().subscribe({
-        next: (res: any) => {
-          this.cartCount.set(res.products.length || 0);
-        },
-        error: (err) => {
-          console.error('Error loading cart:', err);
-          this.cartCount.set(0)
-        }
-      });
-    }
-  }
-
-  logout() {
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    this.router.navigate(['/login']);
-    window.location.reload();
-  }
-
-  viewProfile() {
-    console.log('View profile clicked');
-    const stored = localStorage.getItem('roles');
-    this.router.navigate(['/profile']); // Create profile component later
-  }
-
-  login() {
-    alert('Login to your account');
-    this.router.navigate(['/login']);
-  }
-
-  orderCount() {
-    this.orderService.getMyOrders().subscribe({
-      next: (res: any[]) => {
-        this.orderCountValue = res.length;
-      },
-      error: (err) => {
-        console.error('Failed to fetch orders:', err);
+    // si otro tab cambia storage
+    window.addEventListener('storage', (e) => {
+      if (['token','username','correo','roles','userId','cartLocal'].includes(e.key || '')) {
+        this.username.set(localStorage.getItem('username') || localStorage.getItem('correo') || '');
+        this.refreshAll();
       }
     });
   }
 
-  hasAdminOrSellerRole(): boolean {
-    const stored = localStorage.getItem('roles');
-    const roles: string[] = stored ? JSON.parse(stored) : [];
-  
-    return roles.includes('ROLE_ADMIN') || roles.includes('ROLE_SELLER');
+  private refreshAll() {
+    this.username.set(localStorage.getItem('username') || localStorage.getItem('correo') || '');
+    this.loadCartCount();
+    this.loadOrderCount();
   }
 
+  onSearch(e: Event) {
+    e.preventDefault();
+    const q = this.searchQuery.trim();
+    if (q) this.router.navigate(['/products'], { queryParams: { search: q } });
+    else this.router.navigate(['/products']);
+  }
+
+  // cuenta desde la respuesta del backend (soporta varias formas)
+  private extractCount(resp: any): number {
+    if (!resp) return 0;
+    const arr = Array.isArray(resp)
+      ? resp
+      : (resp.products ?? resp.items ?? resp.detalle ?? resp.detalleCarrito ?? resp.data ?? []);
+    if (!Array.isArray(arr)) return 0;
+
+    let total = 0;
+    for (const it of arr) total += Number(it?.cantidad ?? it?.quantity ?? it?.qty ?? 1) || 0;
+    return total || arr.length || 0;
+  }
+
+  private countFromLocal(): number {
+    return this.cartService.getLocalCount();
+  }
+
+  loadCartCount() {
+    const localCount = this.countFromLocal();
+
+    if (!this.auth.isLoggedIn()) {
+      this.cartCount.set(localCount);
+      return;
+    }
+
+    this.cartService.getCart().subscribe({
+      next: (res) => {
+        const backendCount = this.extractCount(res);
+        // preferimos el MAYOR para no “aplanar” a 0 si el back no expone GET
+        this.cartCount.set(Math.max(backendCount, localCount));
+      },
+      error: () => this.cartCount.set(localCount),
+    });
+  }
+
+  loadOrderCount() {
+    if (!this.auth.isLoggedIn()) { this.orderCountValue = 0; return; }
+    this.orderService.getMyOrders().subscribe({
+      next: (res: any[]) => this.orderCountValue = Array.isArray(res) ? res.length : 0,
+      error: () => this.orderCountValue = 0
+    });
+  }
+
+  logout() {
+    this.auth.logout();
+    this.router.navigate(['/login']);
+  }
+
+  login() {
+    this.router.navigate(['/login']);
+  }
+
+  hasAdminOrSellerRole(): boolean {
+    const stored = localStorage.getItem('roles');
+    if (!stored) return false;
+    try {
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed)
+        ? parsed.includes('ROLE_ADMIN') || parsed.includes('ROLE_SELLER')
+        : (parsed === 'ROLE_ADMIN' || parsed === 'ROLE_SELLER');
+    } catch {
+      return stored === 'ROLE_ADMIN' || stored === 'ROLE_SELLER';
+    }
+  }
 }

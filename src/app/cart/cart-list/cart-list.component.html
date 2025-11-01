@@ -1,53 +1,58 @@
 <div class="container py-4">
-  <h2 class="mb-4">🛒 Your Cart</h2>
+  <h2 class="mb-4">🛒 Tu Carro</h2>
 
   <div *ngIf="loading" class="text-center my-5">
     <div class="spinner-border text-primary"></div>
-    <p>Loading cart...</p>
+    <p>Cargando carrito...</p>
   </div>
 
   <div *ngIf="error" class="alert alert-danger">{{ error }}</div>
 
-  <div *ngIf="cart?.products?.length > 0" class="table-responsive">
+  <div *ngIf="!loading && (cart?.items?.length ?? 0) > 0" class="table-responsive">
     <table class="table align-middle">
       <thead class="table-dark">
         <tr>
-          <th>Product</th>
-          <th>Price (₹)</th>
-          <th>Quantity</th>
-          <th>Total</th>
-          <th>Action</th>
+          <th>Producto</th>
+          <th>Precio</th>
+          <th>Cantidad</th>
+          <th>Subtotal</th>
+          <th>Acción</th>
         </tr>
       </thead>
       <tbody>
-        <tr *ngFor="let product of cart.products">
+        <!-- ✅ usa trackById -->
+        <tr *ngFor="let item of cart.items; trackBy: trackById">
           <td class="d-flex align-items-center gap-2">
-            <img [src]="product.productImage" width="60" height="60" class="rounded border" />
-            {{ product.productName }}
+            <img [src]="item.imagen || fallbackUrl"
+                 width="60" height="60" class="rounded border" alt="producto" />
+            {{ item.nombre }}
           </td>
-          <td>{{ product.specialPrice }}</td>
+          <td>{{ item.precio | currency:'PEN':'symbol' }}</td>
           <td>
             <div class="d-flex align-items-center">
-              <button class="btn btn-sm btn-outline-secondary me-1" (click)="updateQuantity(product.productId, 'delete')">−</button>
-              <span>{{ product.quantity }}</span>
-              <button class="btn btn-sm btn-outline-secondary ms-1" (click)="updateQuantity(product.productId, 'add')">+</button>
+              <button class="btn btn-sm btn-outline-secondary me-1"
+                      (click)="updateQuantity(item.productId, 'delete')">−</button>
+              <span>{{ item.cantidad }}</span>
+              <button class="btn btn-sm btn-outline-secondary ms-1"
+                      (click)="updateQuantity(item.productId, 'add')">+</button>
             </div>
           </td>
-          <td>₹{{ product.quantity * product.specialPrice }}</td>
+          <td>{{ (item.cantidad * item.precio) | currency:'PEN':'symbol' }}</td>
           <td>
-            <button class="btn btn-sm btn-outline-danger" (click)="removeFromCart(product.productId)">🗑️</button>
+            <button class="btn btn-sm btn-outline-danger"
+                    (click)="removeFromCart(item.productId)">🗑️</button>
           </td>
         </tr>
       </tbody>
     </table>
 
     <div class="text-end mt-3">
-      <h4>Total: ₹{{ cart.totalPrice }}</h4>
-      <button class="btn btn-primary mt-2" routerLink="/orders">Proceed to Checkout</button>
+      <h4>Total: {{ totalPrice | currency:'PEN':'symbol' }}</h4>
+      <button class="btn btn-primary mt-2" routerLink="/orders">Proceder</button>
     </div>
   </div>
 
-  <div *ngIf="!loading && cart?.products?.length === 0" class="alert alert-info text-center">
-    Your cart is empty.
+  <div *ngIf="!loading && (cart?.items?.length ?? 0) === 0" class="alert alert-info text-center">
+    TU CARRO ESTÁ VACÍO. ¡AGREGA ALGÚN PRODUCTO!
   </div>
 </div>

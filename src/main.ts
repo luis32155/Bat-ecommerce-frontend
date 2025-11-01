@@ -1,6 +1,19 @@
 import { bootstrapApplication } from '@angular/platform-browser';
-import { appConfig } from './app/app.config';
 import { AppComponent } from './app/app.component';
 
-bootstrapApplication(AppComponent, appConfig)
-  .catch((err) => console.error(err));
+// Importa tu appConfig existente
+import { appConfig } from './app/app.config';
+
+// HTTP + Interceptor
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { authTokenInterceptor } from './app/interceptor/auth-token.interceptor';
+
+bootstrapApplication(AppComponent, {
+  // Mantiene TODO lo que ya tienes en appConfig
+  ...appConfig,
+  // y agrega (o extiende) los providers con el interceptor
+  providers: [
+    ...(appConfig.providers ?? []),
+    provideHttpClient(withInterceptors([authTokenInterceptor])),
+  ],
+}).catch((err) => console.error(err));

@@ -1,116 +1,96 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { catchError, map, of, throwError } from 'rxjs';
+import { environment } from '../../environments/environment';
 
-// === Modelo que usa el FRONT ===
+/** Modelo usado en los componentes */
 export interface Producto {
   id: number;
   nombre: string;
   precio: number;
   descripcion: string;
-  categoria: string; // nombreCategoria del backend
-  marca: string;     // nombreMarca del backend
-  imagen: string;    // urlImagen del backend
-  // opcional, por si algún template viejo aún lo usa:
-  urlImagen?: string;
+  categoria: string;
+  marca: string;
+  imagen: string;
 }
 
-// === Tipo de la RESPUESTA del BACKEND (no lo exportes si no quieres) ===
-type ApiProducto = {
-  id_producto: number;
+export interface Category {
+  id: number;
   nombre: string;
-  precio: number;
-  descripcion: string;
-  nombreCategoria: string;
-  nombreMarca: string;
-  urlImagen: string;
-};
+}
+
+export interface NewProductForm {
+  productName: string;
+  price: number | null;
+  specialPrice: number | null;
+  description: string;
+  productImage: string;
+  categoryId: number | string;
+  discount: number | null;
+}
+
+type ApiProducto = any;
 
 @Injectable({ providedIn: 'root' })
 export class ProductService {
-  private baseApi = 'http://localhost:8080/catalog-service';
-  private productBase = `${this.baseApi}/productos`;
-
-  // Usa el endpoint que SÍ te devuelve el array que mostraste
-  // (si tu listar real es /listarProductos, cámbialo aquí)
-  private listUrl = `${this.productBase}/detalles`;
+  private baseApi = environment.CATALOG_BASE; // http://localhost:8080/catalog-service
 
   constructor(private http: HttpClient) {}
 
-  // Param opcional para no romper firmas previas
-  getAll(_params?: any): Observable<Producto[]> {
-    return this.http.get<ApiProducto[]>(this.listUrl).pipe(
-      map(arr => Array.isArray(arr) ? arr : []),
-      map(arr => arr.map(p => ({
-        id: p.id_producto,
-        nombre: p.nombre,
-        precio: p.precio,
-        descripcion: p.descripcion,
-        categoria: p.nombreCategoria,
-        marca: p.nombreMarca,
-        imagen: p.urlImagen,
-        urlImagen: p.urlImagen
-      })))
-    );
+  /** Mapea la respuesta del backend al modelo Producto del front */
+  private mapApiToProducto = (p: ApiProducto): Producto => ({
+    id:          p.id_producto ?? p.id ?? p.idProducto ?? p.productId,
+    nombre:      p.nombre ?? p.nombreProducto ?? p.name ?? '',
+    precio:      Number(p.precio ?? p.price ?? 0),
+    descripcion: p.descripcion ?? p.description ?? '',
+    categoria:   p.nombreCategoria ?? p.categoria ?? p.category ?? '',
+    marca:       p.nombreMarca ?? p.marca ?? p.brand ?? '',
+    imagen:      p.urlImagen ?? p.imagen ?? p.imageUrl ?? ''
+  });
+
+  /** 👉 Lista de productos desde /productos/detalles */
+  getAll() {
+    return this.http
+      .get<ApiProducto[]>(`${this.baseApi}/productos/detalles`)
+      .pipe(
+        map(arr => Array.isArray(arr) ? arr.map(this.mapApiToProducto) : []),
+        catchError(() => of([] as Producto[]))
+      );
   }
 
-  create(product: any, categoryId: number) {
-    return this.http.post(`${this.baseApi}/categorias/${categoryId}`, product);
+  /** Categorías (si no existe el endpoint, tu componente ya tiene fallback) */
+  getAllCategories() {
+    return this.http
+      .get<any[]>(`${this.baseApi}/categorias/listarCategorias`)
+      .pipe(
+        map(arr => Array.isArray(arr) ? arr : []),
+        map(arr => arr.map(c => ({
+          id: c.id ?? c.idCategoria ?? c.categoriaId,
+          nombre: c.nombre ?? c.nombreCategoria ?? c.name
+        }) as Category)),
+        catchError(() => of([] as Category[]))
+      );
   }
 
-  delete(productId: number) {
-    return this.http.delete(`${this.productBase}/${productId}`);
-  }
+  /** Crear producto: intenta /productos/crear y si 404/405, usa /productos */
+  createProduct(form: NewProductForm) {
+    const payload = {
+      nombre:         form.productName,
+      precio:         form.price,
+      precioEspecial: form.specialPrice,
+      descripcion:    form.description,
+      urlImagen:      form.productImage,
+      idCategoria:    Number(form.categoryId),
+      descuento:      form.discount
+    };
 
-  update(productId: number, product: any) {
-    return this.http.put(`${this.productBase}/${productId}`, product);
-  }
-
-  search(keyword: string, _params?: any): Observable<Producto[]> {
-    // Si no tienes endpoint de búsqueda, devuelvo todo y filtras en el componente
-    return this.getAll().pipe(
-      map(items => {
-        const t = (keyword || '').toLowerCase();
-        return items.filter(p =>
-          p.nombre.toLowerCase().includes(t) ||
-          p.descripcion.toLowerCase().includes(t) ||
-          p.marca.toLowerCase().includes(t) ||
-          p.categoria.toLowerCase().includes(t)
-        );
+    return this.http.post(`${this.baseApi}/productos/crear`, payload).pipe(
+      catchError(err => {
+        if (err?.status === 404 || err?.status === 405) {
+          return this.http.post(`${this.baseApi}/productos`, payload);
+        }
+        return throwError(() => err);
       })
     );
-  }
-
-  getAllCategories(): Observable<any[]> {
-    return this.http.get<any[]>(`${this.baseApi}/categorias/listarCategorias`);
-  }
-
-  getProductsByCategory(categoryId: number, _params?: any): Observable<Producto[]> {
-    // Si tu backend real es /categorias/{id}/productos, ajusta la URL
-    return this.http.get<ApiProducto[]>(`${this.baseApi}/categorias/${categoryId}`).pipe(
-      map(arr => Array.isArray(arr) ? arr : []),
-      map(arr => arr.map(p => ({
-        id: p.id_producto,
-        nombre: p.nombre,
-        precio: p.precio,
-        descripcion: p.descripcion,
-        categoria: p.nombreCategoria,
-        marca: p.nombreMarca,
-        imagen: p.urlImagen,
-        urlImagen: p.urlImagen
-      })))
-    );
-  }
-
-  createProduct(categoryId: number, data: any) {
-    return this.http.post(`${this.baseApi}/categorias/${categoryId}`, data);
-  }
-
-  getMyProducts(_params?: any): Observable<Producto[]> {
-    return this.getAll();
-  }
-
-  deleteProduct(productId: number) {
-    return this.http.delete(`${this.productBase}/${productId}`);
   }
 }

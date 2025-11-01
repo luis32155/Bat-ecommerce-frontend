@@ -6,7 +6,7 @@ import { Observable } from 'rxjs';
   providedIn: 'root'
 })
 export class OrderService {
-  private baseUrl = 'http://localhost:8080/order-service/pedidos';
+  private baseUrl = 'http://localhost:8080';
 
   constructor(private http: HttpClient) {}
 

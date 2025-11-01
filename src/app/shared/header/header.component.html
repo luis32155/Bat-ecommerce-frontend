@@ -1,100 +1,44 @@
-<nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm py-3 sticky-top border-bottom">
+<nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm py-3 border-bottom">
   <div class="container-fluid px-4">
-    
-    <!-- 🛍️ Marca -->
     <a class="navbar-brand d-flex align-items-center gap-2" routerLink="/">
-      <img
-        class="brand-logo"
-        src="https://play-lh.googleusercontent.com/mVncTqLIWn7gatQy5YDADpujhzAa4xk8rNz1RRblCIsp-As22ZHeP-9OJVZegldnPESu=s124-rw"
-        alt="Logo Tiendas Bata"
-        loading="eager"
-      />
+      <img src="https://logosenvector.com/logo/img/bata-12563.jpg" alt="logo" width="120" height="120" />
     </a>
 
-    <!-- ☰ Toggle móvil -->
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar"
-      aria-controls="mainNavbar" aria-expanded="false" aria-label="Mostrar navegación">
-      <span class="navbar-toggler-icon"></span>
-    </button>
+    <form class="d-flex mx-lg-4 my-3 my-lg-0 flex-grow-1" (submit)="onSearch($event)">
+      <input type="search" class="form-control me-2 rounded-pill shadow-sm px-3"
+             [(ngModel)]="searchQuery" name="q" placeholder="Buscar productos...">
+      <button class="btn btn-outline-primary rounded-pill px-4">Buscar</button>
+    </form>
 
-    <!-- Contenido Navbar -->
-    <div class="collapse navbar-collapse" id="mainNavbar">
+    <ul class="navbar-nav ms-auto align-items-center gap-3">
+      <li class="nav-item">
+        <a class="nav-link" routerLink="/orders">
+          <i class="bi bi-bag-check"></i>
+          <span class="ms-1">Pedidos ({{ orderCountValue }})</span>
+        </a>
+      </li>
 
-      <!-- 🔍 Buscador -->
-      <form class="d-flex mx-lg-4 my-3 my-lg-0 flex-grow-1" (submit)="onSearch($event)">
-        <input
-          type="search"
-          class="form-control me-2 rounded-pill shadow-sm px-3"
-          [(ngModel)]="searchQuery"
-          name="search"
-          placeholder="Buscar productos, marcas y más"
-          aria-label="Buscar"
-        />
-        <button class="btn btn-primary rounded-pill px-4 shadow-sm" type="submit" aria-label="Buscar">
-          <i class="bi bi-search"></i>
-        </button>
-      </form>
+      <li class="nav-item position-relative">
+        <a class="nav-link" routerLink="/cart" title="Carrito">
+          <i class="bi bi-cart3 fs-5"></i>
+          <span *ngIf="cartCount() > 0"
+                class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+            {{ cartCount() }}
+          </span>
+        </a>
+      </li>
 
-      <!-- Acciones derecha -->
-      <ul class="navbar-nav ms-auto align-items-center gap-3">
-
-        <!-- 🛒 Carrito & 📦 Pedidos -->
-        <li class="nav-item d-flex align-items-center gap-2">
-
-          <!-- Carrito -->
-          <a routerLink="/cart"
-             class="btn btn-outline-primary rounded-pill d-flex align-items-center gap-2 px-3 py-1 position-relative">
-            <i class="bi bi-cart4 fs-5"></i>
-            <span>Carrito</span>
-            <span class="badge bg-light text-dark">{{ cartCount() }}</span>
-          </a>
-
-          <!-- Pedidos -->
-          <a routerLink="/my-orders"
-             class="btn btn-outline-secondary rounded-pill d-flex align-items-center gap-2 px-3 py-1">
-            <i class="bi bi-bag-check-fill text-warning fs-5"></i>
-            <span>Pedidos</span>
-            <span class="badge bg-light text-dark">{{ orderCountValue }}</span>
-          </a>
-
-        </li>
-
-        <!-- 🧰 Administración -->
-        <li *ngIf="hasAdminOrSellerRole()" class="nav-item dropdown">
-          <a class="btn btn-outline-secondary dropdown-toggle rounded-pill px-3 py-1 d-flex align-items-center gap-2"
-             href="#" role="button" data-bs-toggle="dropdown">
-            <i class="bi bi-box-seam-fill text-success fs-5"></i>
-            <span>Administrar</span>
-          </a>
-          <ul class="dropdown-menu shadow-sm">
-            <li><a class="dropdown-item" routerLink="/products/create">➕ Crear producto</a></li>
-            <li><a class="dropdown-item" routerLink="/products/manage">🛠️ Gestionar productos</a></li>
-          </ul>
-        </li>
-
-        <!-- 👤 Usuario -->
-        <li *ngIf="username(); else guestLinks" class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle d-flex align-items-center text-dark" href="#" role="button"
-             data-bs-toggle="dropdown">
-            <i class="bi bi-person-circle fs-4 text-primary"></i>
-            <span class="ms-2 fw-semibold">{{ username() | uppercase }}</span>
-          </a>
-          <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-            <li><a class="dropdown-item" (click)="viewProfile()">👤 Perfil</a></li>
-            <li><a class="dropdown-item" routerLink="wishlist">❤️ Favoritos</a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item text-danger" (click)="logout()">🚪 Cerrar sesión</a></li>
-          </ul>
-        </li>
-
-        <!-- 🔘 Invitado -->
-        <ng-template #guestLinks>
-          <li class="nav-item">
-            <a class="btn btn-outline-primary rounded-pill px-3 py-1" routerLink="/login">Iniciar sesión</a>
-          </li>
-        </ng-template>
-
-      </ul>
-    </div>
+      <li class="nav-item dropdown">
+        <a class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown">
+          {{ username() || 'Invitado' }}
+        </a>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" routerLink="/profile">Perfil</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li *ngIf="username(); else loginTpl"><a class="dropdown-item" (click)="logout()">Salir</a></li>
+        </ul>
+        <ng-template #loginTpl><a class="dropdown-item" (click)="login()">Ingresar</a></ng-template>
+      </li>
+    </ul>
   </div>
 </nav>

@@ -1,227 +1,206 @@
-import { Component, inject } from '@angular/core';
-import { ProductService } from '../../services/product.service';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { CartService } from '../../services/cart.service';
 import { HttpClientModule } from '@angular/common/http';
-import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { WishlistComponent } from '../../wishlist/wishlist.component';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+
+import { ProductService, Producto } from '../../services/product.service';
+import { CartService } from '../../services/cart.service';
 import { WishlistService } from '../../services/wishlist.service';
+
+// 👇 importante: finalize desde rxjs/operators
+import { finalize } from 'rxjs/operators';
 
 @Component({
   selector: 'app-product-list',
   standalone: true,
-  imports: [CommonModule, HttpClientModule, FormsModule],
+  imports: [CommonModule, HttpClientModule, FormsModule, RouterLink],
   templateUrl: './product-list.component.html',
-  styleUrl: './product-list.component.css'
+  styleUrls: ['./product-list.component.css'],
 })
-export class ProductListComponent {
+export class ProductListComponent implements OnInit {
   private productService = inject(ProductService);
   private cartService = inject(CartService);
   private route = inject(ActivatedRoute);
   private wishlistService = inject(WishlistService);
 
-  products: any[] = [];
+  /** Fuente completa y vista paginada */
+  allProducts: Producto[] = [];
+  products:     Producto[] = [];
+
   loading = true;
-  error: string = '';
-  
+  error   = '';
+
   page = 0;
   size = 2;
   totalPages = 1;
-  pageSizeOptions = [2, 4, 6, 12]; // You can adjust these
+  pageSizeOptions = [2, 4, 6, 12];
 
-  categories: any[] = [];
-  selectedCategoryId: number | null = null;
+  // Trabajamos por NOMBRE de categoría
+  categories: string[] = [];
+  selectedCategoryName: string | null = null;
 
+  private currentSearchTerm = '';
+
+  // Fallback para imágenes rotas (usado en el template)
+  fallbackUrl = 'https://via.placeholder.com/600x600?text=No+Image';
 
   ngOnInit(): void {
-    this.loadCategories();
-
     const savedSize = localStorage.getItem('pageSize');
-    if (savedSize) {
-      this.size = +savedSize;
-    }
-  
+    if (savedSize) this.size = Math.max(1, +savedSize || 2);
+
+    this.loadAllAndCategories();
+
     this.route.queryParams.subscribe(params => {
-      const search = params['search'];
-      if (search) {
-        this.searchProducts(search);
-      } else {
-        this.fetchProducts();
-      }
+      this.currentSearchTerm = params['search'] || '';
+      this.applyFiltersAndPaging();
     });
   }
 
-  loadCategories() {
-    this.productService.getAllCategories().subscribe({
-      next: (res: any[]) => {
-        this.categories = res;
-      },
-      error: () => {
-        console.warn('Failed to load categories');
-      }
-    });
-  }
-
-  filterByCategory(categoryId: number | null) {
-    console.log('Selected category ID:', categoryId);
-    this.selectedCategoryId = categoryId;
-    this.page = 0;
-    this.fetchProducts();
-  }
-  
-  fetchProducts(): void {
+  /** Carga catálogo una sola vez (array) y arma categorías. */
+  private loadAllAndCategories() {
     this.loading = true;
-  
-    const params = {
-      pageNumber: this.page,
-      pageSize: this.size,
-      sortBy: 'productName',
-      sortOrder: 'asc'
-    };
-  
-    if (this.selectedCategoryId) {
-      // Category-specific endpoint
-      this.productService.getProductsByCategory(this.selectedCategoryId, params).subscribe({
-        next: (res: any) => {
-          this.products = res.content || res;
-          this.totalPages = res.totalPages || 1;
-          this.loading = false;
-        },
-        error: () => {
-          this.error = 'Failed to load products by category';
-          this.loading = false;
-        }
-      });
-    } else {
-      // Default: All products
-      this.productService.getAll(params).subscribe({
-        next: (res: any) => {
-          this.products = res.content || res;
-          this.totalPages = res.totalPages || 1;
-          this.loading = false;
+    this.productService.getAll()
+      .pipe(finalize(() => (this.loading = false)))
+      .subscribe({
+        next: (arr) => {
+          this.allProducts = arr ?? [];
+
+          // Intentar API de categorías; si falla, derivar de la data
+          this.productService.getAllCategories().subscribe({
+            next: (cats) => {
+              this.categories = (cats ?? [])
+                .map(c => c.nombre)
+                .filter(Boolean)
+                .sort();
+
+              if (this.categories.length === 0) {
+                const set = new Set(this.allProducts.map(p => p.categoria).filter(Boolean));
+                this.categories = Array.from(set).sort();
+              }
+              this.applyFiltersAndPaging();
+            },
+            error: () => {
+              const set = new Set(this.allProducts.map(p => p.categoria).filter(Boolean));
+              this.categories = Array.from(set).sort();
+              this.applyFiltersAndPaging();
+            }
+          });
         },
         error: () => {
           this.error = 'Failed to load products';
-          this.loading = false;
         }
       });
-    }
   }
 
-  nextPage(): void {
-    this.page++;
-    this.fetchProducts();
-  }
-
-  prevPage(): void {
-    if (this.page > 0) {
-      this.page--;
-      this.fetchProducts();
-    }
-  }
-
-  goToPage(index: number) {
-    if (index >= 0 && index < this.totalPages) {
-      this.page = index;
-      this.fetchProducts();
-    }
-  }
-
-  onPageSizeChange() {
-    localStorage.setItem('pageSize', this.size.toString());
+  filterByCategory(categoryName: string | null) {
+    this.selectedCategoryName = categoryName;
     this.page = 0;
-    this.fetchProducts();
+    this.applyFiltersAndPaging();
   }
-  
-  //
+
+  searchProducts(term: string) {
+    this.currentSearchTerm = term ?? '';
+    this.page = 0;
+    this.applyFiltersAndPaging();
+  }
+
+  /** Aplica búsqueda, filtro por categoría y paginación en cliente. */
+  private applyFiltersAndPaging() {
+    let data = [...this.allProducts];
+
+    if (this.selectedCategoryName) {
+      data = data.filter(p => (p.categoria ?? '') === this.selectedCategoryName);
+    }
+
+    if (this.currentSearchTerm) {
+      const t = (this.currentSearchTerm ?? '').toLowerCase();
+      data = data.filter(p => {
+        const nombre      = (p.nombre ?? '').toLowerCase();
+        const descripcion = (p.descripcion ?? '').toLowerCase();
+        const marca       = (p.marca ?? '').toLowerCase();
+        const categoria   = (p.categoria ?? '').toLowerCase();
+        return nombre.includes(t) || descripcion.includes(t) || marca.includes(t) || categoria.includes(t);
+      });
+    }
+
+    // paginación client-side
+    const pageSize = Math.max(1, this.size || 1);
+    this.totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+    if (this.page >= this.totalPages) this.page = this.totalPages - 1;
+
+    const start = this.page * pageSize;
+    const end   = start + pageSize;
+    this.products = data.slice(start, end);
+
+    // persistir tamaño de página
+    localStorage.setItem('pageSize', String(pageSize));
+  }
+
+  nextPage()      { if (this.page < this.totalPages - 1) { this.page++; this.applyFiltersAndPaging(); } }
+  prevPage()      { if (this.page > 0) { this.page--; this.applyFiltersAndPaging(); } }
+  goToPage(i: number) { if (i >= 0 && i < this.totalPages) { this.page = i; this.applyFiltersAndPaging(); } }
+  onPageSizeChange()  { this.page = 0; this.applyFiltersAndPaging(); }
+
+  // trackBy para *ngFor
+  trackById(_i: number, p: Producto) { return p.id; }
+
+  // --- acciones ---
   addToCart(productId: number) {
     this.cartService.addToCart(productId, 1).subscribe({
-      next: (res) => {
-        // console.log('Add to cart response:', res);
-        if (res) {
-          this.cartService.getCart().subscribe({
-            next: (cart) => {
-              alert('Product added to cart!');
-              this.cartService.notifyCartChange(); // Notify other component
-            },
-            error: (err) => {
-              alert('Failed to fetch cart.');
-            } 
-          });
-        }
+      next: () => {
+        this.cartService.getCart().subscribe({
+          next: () => {
+            alert('Product added to cart!');
+            this.cartService.notifyCartChange();
+          },
+          error: () => alert('Failed to fetch cart.')
+        });
       },
       error: (err) => {
-        // console.error('Error adding to cart:', err);
-        const backendMessage = err.error?.message || 'Something went wrong.';
+        const backendMessage = err?.error?.message || 'Something went wrong.';
         alert('Failed to add to cart: ' + backendMessage);
-      }
-    });
-  }
-
-  searchProducts(term: string): void {
-    this.loading = true;
-    this.productService.search(term, {
-      pageNumber: this.page,
-      pageSize: this.size
-    }).subscribe({
-      next: (res: any) => {
-        this.products = res.content || res;
-        this.loading = false;
-      },
-      error: (err) => {
-        const backendMessage = err.error?.message || 'Search failed.';
-        this.loading = false;
-        alert('Search failed: ' + backendMessage);
       }
     });
   }
 
   addToWishlist(productId: number) {
-    console.log('Add to wishlist:', productId);
     const userId = Number(localStorage.getItem('userId'));
-    if (!userId) {
-      alert('User ID is invalid or not found.');
-      return;
-    }
+    if (!userId) { alert('User ID is invalid or not found.'); return; }
     this.wishlistService.addProductToWishlist(userId, productId).subscribe({
-      next: (res) => {
-        console.log('Product added to wishlist:', res);
-        alert('Product added to wishlist!');
-      },
+      next: () => alert('Product added to wishlist!'),
       error: (err) => {
-        console.error('Error adding to wishlist:', err);
-        const backendMessage = err.error?.message || 'Something went wrong.';
-        alert('Failed to add to wishlist: ' + backendMessage); 
+        const backendMessage = err?.error?.message || 'Something went wrong.';
+        alert('Failed to add to wishlist: ' + backendMessage);
       }
     });
   }
-  
+
   buyNow(productId: number) {
-    console.log('Buy now clicked for:', productId);
     this.cartService.addToCart(productId, 1).subscribe({
-      next: (res) => {
-        if (res) {
-          this.cartService.getCart().subscribe({
-            next: (cart) => {
-              alert('Product added to cart! Redirecting to checkout...');
-              this.cartService.notifyCartChange(); // Notify other component
-              // Redirect to checkout page
-              // this.router.navigate(['/checkout']);
-              window.location.href = '/cart';
-            },
-            error: (err) => {
-              alert('Failed to fetch cart.');
-            } 
-          });
-        }
+      next: () => {
+        this.cartService.getCart().subscribe({
+          next: () => {
+            alert('Product added to cart! Redirecting to checkout...');
+            this.cartService.notifyCartChange();
+            // si prefieres Router, reemplaza por this.router.navigate(['/cart']);
+            window.location.href = '/cart';
+          },
+          error: () => alert('Failed to fetch cart.')
+        });
       },
       error: (err) => {
-        const backendMessage = err.error?.message || 'Something went wrong.';
+        const backendMessage = err?.error?.message || 'Something went wrong.';
         alert('Failed to add to cart: ' + backendMessage);
       }
     });
   }
-  
 
+  // Handler para fallback de imagen
+  onImgError(e: Event) {
+    const img = e.target as HTMLImageElement | null;
+    if (!img) return;
+    img.onerror = null; // evita loop si el placeholder también falla
+    img.src = this.fallbackUrl;
+  }
 }
